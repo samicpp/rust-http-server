@@ -15,6 +15,7 @@ use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
+use regex::Regex;
 
 
 // async fn readfile(path: &str) -> Result<Vec<u8>, std::io::Error> {
@@ -25,6 +26,9 @@ use tokio::net::TcpListener;
 //     Ok(buffer)
 // }
 
+
+// const path_cleanup1: Regex = Regex::new(r"/+").unwrap();
+// const path_cleanup2: Regex = Regex::new(r"/$").unwrap();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -82,8 +86,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 async fn handler(serve_dir: &str, req: Request<hyper::body::Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     println!("Serving connection");
-    let full_path: String = serve_dir.to_owned()+&req.uri().to_string();
+
+    let path_cleanup1: Regex = Regex::new(r"/+").unwrap();
+    let path_cleanup2: Regex = Regex::new(r"/$").unwrap();
+
+    let full_path: String = { 
+        let full_path: String=serve_dir.to_owned()+&req.uri().to_string();
+        let full_path   =full_path.replace("\\", "/");
+        let full_path   =path_cleanup1.replace_all(&full_path, "/");
+
+        let full_path = if full_path.len() > 1 {
+            path_cleanup2.replace(&full_path, "").to_string()
+        } else {
+            path_cleanup2.to_string()
+        };
+
+
+        full_path
+    };
     println!("Full path: {}", full_path);
+
+    
     
     let info_res = fs::metadata(&full_path);
     match info_res{
@@ -130,6 +153,7 @@ async fn handler(serve_dir: &str, req: Request<hyper::body::Incoming>) -> Result
 }
 
 async fn error_handler(code: u16, err: std::io::Error, req: Request<hyper::body::Incoming>) -> Result<Response<Full<Bytes>>, Infallible>{
+    eprintln!("Error of status {} occoured\n\x1b[31m{}\x1b[0m",code,err);
     match code {
         404 => {
             println!("404 Not Found: {}", req.uri());
@@ -204,6 +228,8 @@ async fn dir_handler(req: Request<hyper::body::Incoming>,path: &str) -> Result<R
             continue; // Mitigate dirs treated as files
         }
 
+        println!("Directory entry {}\n{:?}",file_name,entry);
+
         if file_name.starts_with("index.") || file_name == "index" || file_name.starts_with(last_dir) {
             file = path.to_owned() + "" + &file_name;
             break;
@@ -218,3 +244,5 @@ async fn dir_handler(req: Request<hyper::body::Incoming>,path: &str) -> Result<R
         error_handler(409, std::io::Error::new(std::io::ErrorKind::IsADirectory,"Cannot find index file in directory"), req).await
     }
 }
+
+
