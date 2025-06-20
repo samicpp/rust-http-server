@@ -16,6 +16,9 @@ use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use regex::Regex;
+// use dotenv::dotenv;
+use std::path::Path;
+// use dotenvy;
 
 
 // async fn readfile(path: &str) -> Result<Vec<u8>, std::io::Error> {
@@ -32,9 +35,23 @@ use regex::Regex;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut serve_dir: String = "./public".to_string();
-    let mut port: u16 = 3000;
-    let mut host: [u8; 4] = [0, 0, 0, 0];
+    // let dotenv_successfull = dotenv().ok();
+    let dotenvy_successfull = dotenvy::from_path(Path::new(".env"));
+
+    let mut serve_dir: String = env::var("serve_dir").unwrap_or("./public".to_string());
+    let mut port: u16 = env::var("port").unwrap_or("3000".to_string()).parse().unwrap_or(3000);
+    let mut host: [u8; 4] = { 
+        let mut host: [u8; 4] = [0, 0, 0, 0];
+        let host_str = env::var("host").unwrap_or("0.0.0.0".to_string());
+        let parts: Vec<&str> = host_str.split('.').collect();
+        if parts.len() == 4 {
+            for (i, part) in parts.iter().enumerate() {
+                host[i] = part.parse::<u8>().unwrap_or(0);
+            }
+        }
+
+        host
+    };
     let args: Vec<String> = env::args().collect();
 
     // Check arguments that the user provided
@@ -53,6 +70,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             eprintln!("Invalid host address. Using default");
         }
     }
+
+    // dbg!(dotenv_successfull);
+    dbg!(dotenvy_successfull)?;
+    // dbg!(env::var("serve_dir"));
+
+
+    println!(
+        "Parameters of the server are\n\x1b[32mport = {}\n\x1b[33mhost = {:?}\n\x1b[34mdirectory = {}\x1b[0m",
+        port, host, serve_dir
+    );
 
 
     let addr = SocketAddr::from((host, port));
@@ -89,20 +116,20 @@ async fn handler(serve_dir: &str, req: Request<hyper::body::Incoming>) -> Result
 
     let path_cleanup1: Regex = Regex::new(r"/+").unwrap();
     let path_cleanup2: Regex = Regex::new(r"/$").unwrap();
+    let path_cleanup3: Regex = Regex::new(r"\?*.").unwrap();
 
     let full_path: String = { 
-        let full_path: String=serve_dir.to_owned()+&req.uri().to_string();
+        let full_path: String = req.uri().to_string();
         let full_path   =full_path.replace("\\", "/");
-        let full_path   =path_cleanup1.replace_all(&full_path, "/");
-
+        let full_path = path_cleanup1.replace_all(&full_path, "/");
         let full_path = if full_path.len() > 1 {
-            path_cleanup2.replace(&full_path, "").to_string()
+            path_cleanup2.replace(&full_path, "")
         } else {
-            path_cleanup2.to_string()
+            full_path
         };
+        let full_path = if full_path.len() > 1 { path_cleanup3.replace_all(&full_path, "") } else { full_path };
 
-
-        full_path
+        serve_dir.to_owned() + &full_path.to_string()
     };
     println!("Full path: {}", full_path);
 
@@ -231,7 +258,8 @@ async fn dir_handler(req: Request<hyper::body::Incoming>,path: &str) -> Result<R
         println!("Directory entry {}\n{:?}",file_name,entry);
 
         if file_name.starts_with("index.") || file_name == "index" || file_name.starts_with(last_dir) {
-            file = path.to_owned() + "" + &file_name;
+            // file = path.to_owned() + "/" + &file_name;
+            file = entry.path().to_string_lossy().to_string();
             break;
         }
     }
